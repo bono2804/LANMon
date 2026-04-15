@@ -66,7 +66,9 @@ Install both via Arduino Library Manager:
 
 Credentials and device names are stored in NVS and survive power cycles.
 
-**To reset WiFi:** hold BOOT while powering on → returns to hotspot setup mode.
+**To reset WiFi:** power on and quickly push and hold BOOT button → returns to hotspot setup mode.
+
+**Bootloader:**  To enter bootloader hold BOOT then power on
 
 ---
 
