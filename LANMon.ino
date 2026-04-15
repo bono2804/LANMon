@@ -128,6 +128,7 @@ static uint32_t bootDownMs     = 0;
 static bool     ssaverActive   = false;
 static uint32_t lastActivityMs = 0;
 static bool     bstEnabled     = false;  // loaded from NVS; set during provisioning
+static uint8_t  ssaverDimPct   = 50;     // 0–100 in steps of 10; loaded from NVS
 
 // Set true when the current WiFi subnet differs from the subnet the IP table
 // was built for — displayed as a "FIX IP LIST" warning until resolved.
@@ -503,6 +504,7 @@ void handleButton() {
     // While screensaver is active, any press just returns to normal display
     if (ssaverActive) {
       ssaverActive = false;
+      u8g2.setContrast(200);
       updateLedStatus();
       drawScreen(false, 0);
       return;
@@ -820,6 +822,21 @@ void runProvisioningMode() {
       "document.getElementById('pwtog').textContent=p.type=='password'?'Show':'Hide';"
       "\">Show</button>"
       "</div>"
+      "<label>Screensaver dim</label>"
+      "<select name='ssdim'>";
+    for (int d = 0; d <= 100; d += 10) {
+      html += "<option value='";
+      html += d;
+      html += "'";
+      if (d == (int)ssaverDimPct) html += " selected";
+      html += ">";
+      if (d == 0)   html += "0% (no dim)";
+      else if (d == 100) html += "100% (display off)";
+      else { html += d; html += "%"; }
+      html += "</option>";
+    }
+    html +=
+      "</select>"
       "<label style='display:flex;align-items:center;gap:10px;margin-top:14px'>"
       "<input type='checkbox' name='bst' value='on' style='width:auto;margin:0'";
     html += bstEnabled ? " checked" : "";
@@ -883,10 +900,14 @@ void runProvisioningMode() {
     }
 
     bool bst = server.arg("bst") == "on";
+    int dimPct = server.arg("ssdim").toInt();
+    dimPct = constrain((dimPct / 10) * 10, 0, 100);
+    ssaverDimPct = (uint8_t)dimPct;
     prefs.begin("lanmon", false);
     prefs.putString("ssid", ssid);
     prefs.putString("pass", pass);
     prefs.putBool("bst", bst);
+    prefs.putUChar("ssdim", ssaverDimPct);
     prefs.end();
 
     server.send(200, "text/html",
@@ -994,6 +1015,7 @@ void setup() {
     wifiPass   = prefs.getString("pass");
     bstEnabled = prefs.getBool("bst", false);
   }
+  ssaverDimPct = prefs.getUChar("ssdim", 50);  // always load; default 50%
   prefs.end();
   Serial.printf("BST: %s\n", bstEnabled ? "on (UTC+1)" : "off (UTC)");
 
@@ -1052,6 +1074,7 @@ void loop() {
   if (!ssaverActive && millis() - lastActivityMs >= SCREENSAVER_MS) {
     ssaverActive = true;
     setLed(0, 0, 0);
+    u8g2.setContrast((uint8_t)(200UL * (100 - ssaverDimPct) / 100));
     drawScreensaver();
   }
 
