@@ -426,13 +426,20 @@ void runScan() {
     if (host == myHost) continue;
     IP4_ADDR(&reqCtx.addr, sub[0], sub[1], sub[2], (uint8_t)host);
     esp_netif_tcpip_exec((esp_netif_callback_fn)cbArpRequest, &reqCtx);
-    if ((host & 0x0F) == 0) { ssaverActive ? drawScreensaver() : drawScreen(true, host); }
+    if ((host & 0x0F) == 0) {
+      if      (!ssaverActive)       drawScreen(true, host);
+      else if (ssaverDimPct < 100)  drawScreensaver();
+    }
     delay(ARP_FLOOD_DELAY_MS);
   }
 
   // Wait for replies
   uint32_t deadline = millis() + ARP_REPLY_WAIT_MS;
-  while (millis() < deadline) { ssaverActive ? drawScreensaver() : drawScreen(true, 254); delay(150); }
+  while (millis() < deadline) {
+    if      (!ssaverActive)       drawScreen(true, 254);
+    else if (ssaverDimPct < 100)  drawScreensaver();
+    delay(150);
+  }
 
   // Read entire ARP cache in one callback inside the TCPIP task
   ArpCacheCtx cacheCtx;
@@ -504,6 +511,7 @@ void handleButton() {
     // While screensaver is active, any press just returns to normal display
     if (ssaverActive) {
       ssaverActive = false;
+      u8g2.setPowerSave(0);  // re-enable display in case 100% dim (power-off) was active
       u8g2.setContrast(200);
       updateLedStatus();
       drawScreen(false, 0);
@@ -1074,8 +1082,16 @@ void loop() {
   if (!ssaverActive && millis() - lastActivityMs >= SCREENSAVER_MS) {
     ssaverActive = true;
     setLed(0, 0, 0);
-    u8g2.setContrast((uint8_t)(200UL * (100 - ssaverDimPct) / 100));
-    drawScreensaver();
+    if (ssaverDimPct >= 100) {
+      u8g2.setPowerSave(1);  // display off for 100% dim
+    } else {
+      // Quadratic curve: linear contrast mapping is not perceptually visible on
+      // SSD1306 — squaring the ratio makes mid-range dim levels actually appear dim.
+      // e.g. 60% dim → contrast 32 (vs 80 with linear), which is clearly visible.
+      uint32_t f = (uint32_t)(100 - ssaverDimPct);
+      u8g2.setContrast((uint8_t)(200UL * f * f / 10000UL));
+      drawScreensaver();
+    }
   }
 
   // WiFi reconnect — runs regardless of screensaver state
@@ -1094,7 +1110,8 @@ void loop() {
     if (WiFi.status() == WL_CONNECTED) {
       checkAndStoreSubnet();
       runScan();
-      ssaverActive ? drawScreensaver() : drawScreen(false, 0);
+      if      (!ssaverActive)       drawScreen(false, 0);
+      else if (ssaverDimPct < 100)  drawScreensaver();
     }
     return;
   }
@@ -1102,7 +1119,8 @@ void loop() {
   // Auto-scan — runs regardless of screensaver state; updates devices[], web UI, serial
   if (millis() - lastScanMs >= SCAN_INTERVAL_MS) {
     runScan();
-    ssaverActive ? drawScreensaver() : drawScreen(false, 0);
+    if      (!ssaverActive)       drawScreen(false, 0);
+    else if (ssaverDimPct < 100)  drawScreensaver();
     return;
   }
 
@@ -1111,7 +1129,9 @@ void loop() {
   uint32_t refreshMs = ssaverActive ? 1000 : 500;   // clock updates 1/s, bars 2/s
   if (millis() - lastDisplayMs >= refreshMs) {
     lastDisplayMs = millis();
-    ssaverActive ? drawScreensaver() : drawScreen(false, 0);
+    if      (!ssaverActive)           drawScreen(false, 0);
+    else if (ssaverDimPct < 100)      drawScreensaver();
+    // 100% dim: display powered off — nothing to draw
   }
 
   delay(50);
